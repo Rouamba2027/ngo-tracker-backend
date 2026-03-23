@@ -13,7 +13,17 @@ async function get(req, res) {
     if (!org) return res.status(404).json({ error: "Organisation introuvable." });
 
     const memberCount = await User.countDocuments({ orgId: org._id });
-    return res.json({ organization: { ...org.toJSON(), memberCount } });
+    const isAdmin = req.user.role === "ADMIN";
+
+    const orgData = {
+      ...org.toJSON(),
+      memberCount,
+      // Les codes manager et viewer sont visibles uniquement par l'ADMIN
+      managerCode: isAdmin ? org.managerCode : undefined,
+      viewerCode:  isAdmin ? org.viewerCode  : undefined,
+    };
+
+    return res.json({ organization: orgData });
   } catch (err) {
     return res.status(500).json({ error: "Erreur serveur." });
   }

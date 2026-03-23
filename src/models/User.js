@@ -119,7 +119,16 @@ const userSchema = new mongoose.Schema(
     name: { type: String, required: [true, "Le nom est requis."], trim: true },
     email: { type: String, required: [true, "L'email est requis."], unique: true, lowercase: true, trim: true, match: [/^\S+@\S+\.\S+$/, "Format d'email invalide."] },
     passwordHash: { type: String, required: true, select: false },
-    role: { type: String, enum: ["ADMIN", "MANAGER", "VIEWER"], default: "VIEWER" },
+    // ✅ FIX : role explicitement requis avec message d'erreur clair
+    role: {
+      type: String,
+      enum: {
+        values: ["ADMIN", "MANAGER", "VIEWER"],
+        message: "Rôle invalide. Valeurs acceptées : ADMIN, MANAGER, VIEWER."
+      },
+      default: "VIEWER",
+      required: [true, "Le rôle est requis."]
+    },
   },
   { timestamps: true, versionKey: false }
 );
