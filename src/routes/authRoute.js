@@ -33,7 +33,7 @@ const { authenticate }        = require("../middleware/authMiddleware");
  *         role:
  *           type: string
  *           enum: [ADMIN, MANAGER, VIEWER]
- *           example: "MANAGER"
+ *           example: "ADMIN"
  *         organization:
  *           type: string
  *           example: "60d21b4667d0d8992e610c86"
@@ -44,31 +44,34 @@ const { authenticate }        = require("../middleware/authMiddleware");
  *     RegisterRequest:
  *       type: object
  *       required:
+ *         - name
  *         - email
  *         - password
- *         - name
- *         - type
+ *         - orgName
+ *         - receiptNumber
+ *         - country
  *       properties:
+ *         name:
+ *           type: string
+ *           example: "John Doe"
  *         email:
  *           type: string
  *           format: email
- *           example: "john.doe@example.com"
+ *           example: "contact@ong.org"
  *         password:
  *           type: string
  *           format: password
  *           minLength: 6
- *           example: "password123"
- *         name:
+ *           example: "secure123"
+ *         orgName:
  *           type: string
- *           example: "John Doe"
- *         type:
+ *           example: "Médecins Sans Frontières"
+ *         receiptNumber:
  *           type: string
- *           enum: [ONG, MANAGER, VIEWER]
- *           description: "ONG → crée org + ADMIN, MANAGER/VIEWER → rejoindre org existante"
- *         orgCode:
+ *           example: "REC-2024-001"
+ *         country:
  *           type: string
- *           description: "Code d'invitation (requis pour MANAGER/VIEWER)"
- *           example: "ABC123XYZ"
+ *           example: "FR"
  *     
  *     LoginRequest:
  *       type: object
@@ -79,18 +82,11 @@ const { authenticate }        = require("../middleware/authMiddleware");
  *         email:
  *           type: string
  *           format: email
- *           example: "user@example.com"
+ *           example: "contact@ong.org"
  *         password:
  *           type: string
  *           format: password
- *           example: "password123"
- *         role:
- *           type: string
- *           enum: [ADMIN, MANAGER, VIEWER]
- *           description: "Rôle pour la session"
- *         orgCode:
- *           type: string
- *           description: "Requis pour les ADMIN"
+ *           example: "secure123"
  *     
  *     AuthResponse:
  *       type: object
@@ -105,7 +101,13 @@ const { authenticate }        = require("../middleware/authMiddleware");
  *           $ref: '#/components/schemas/User'
  *         orgCode:
  *           type: string
- *           description: "Code d'invitation de l'organisation (retourné uniquement pour inscription ONG)"
+ *           description: "Code ONG généré"
+ *         managerCode:
+ *           type: string
+ *           description: "Code Manager généré"
+ *         viewerCode:
+ *           type: string
+ *           description: "Code Viewer généré"
  *     
  *     Error:
  *       type: object
@@ -122,10 +124,8 @@ const { authenticate }        = require("../middleware/authMiddleware");
  * @swagger
  * /auth/register:
  *   post:
- *     summary: Inscription d'un nouvel utilisateur
- *     description: |
- *       - Type="ONG" → Crée une nouvelle organisation + compte ADMIN, génère un orgCode
- *       - Type="MANAGER" ou "VIEWER" → Rejoint une organisation existante via orgCode
+ *     summary: Inscription d'une nouvelle ONG
+ *     description: Crée une nouvelle organisation et un compte Administrateur
  *     tags: [Auth]
  *     requestBody:
  *       required: true
@@ -133,49 +133,13 @@ const { authenticate }        = require("../middleware/authMiddleware");
  *         application/json:
  *           schema:
  *             $ref: '#/components/schemas/RegisterRequest'
- *           examples:
- *             OngRegistration:
- *               summary: Inscription d'une ONG
- *               value:
- *                 email: "contact@ong.org"
- *                 password: "secure123"
- *                 name: "Médecins Sans Frontières"
- *                 type: "ONG"
- *             ManagerRegistration:
- *               summary: Inscription d'un manager
- *               value:
- *                 email: "manager@example.com"
- *                 password: "secure123"
- *                 name: "Jane Smith"
- *                 type: "MANAGER"
- *                 orgCode: "ABC123XYZ"
  *     responses:
  *       201:
- *         description: Utilisateur créé avec succès
+ *         description: ONG créée avec succès
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/AuthResponse'
- *             examples:
- *               OngResponse:
- *                 value:
- *                   success: true
- *                   token: "eyJhbGciOiJIUzI1NiIs..."
- *                   user:
- *                     id: "60d21b4667d0d8992e610c85"
- *                     email: "contact@ong.org"
- *                     role: "ADMIN"
- *                     organization: "60d21b4667d0d8992e610c86"
- *                   orgCode: "ABC123XYZ"
- *               MemberResponse:
- *                 value:
- *                   success: true
- *                   token: "eyJhbGciOiJIUzI1NiIs..."
- *                   user:
- *                     id: "60d21b4667d0d8992e610c87"
- *                     email: "manager@example.com"
- *                     role: "MANAGER"
- *                     organization: "60d21b4667d0d8992e610c86"
  *       400:
  *         description: Données invalides
  *         content:
@@ -184,8 +148,6 @@ const { authenticate }        = require("../middleware/authMiddleware");
  *               $ref: '#/components/schemas/Error'
  *       409:
  *         description: Email déjà utilisé
- *       404:
- *         description: Code d'organisation invalide
  */
 
 /**
@@ -193,7 +155,7 @@ const { authenticate }        = require("../middleware/authMiddleware");
  * /auth/login:
  *   post:
  *     summary: Connexion utilisateur
- *     description: Authentification avec email et mot de passe
+ *     description: Authentification avec email et mot de passe (pour ADMIN, MANAGER, VIEWER)
  *     tags: [Auth]
  *     requestBody:
  *       required: true
@@ -201,17 +163,6 @@ const { authenticate }        = require("../middleware/authMiddleware");
  *         application/json:
  *           schema:
  *             $ref: '#/components/schemas/LoginRequest'
- *           examples:
- *             AdminLogin:
- *               value:
- *                 email: "admin@ong.org"
- *                 password: "admin123"
- *                 role: "ADMIN"
- *                 orgCode: "ABC123XYZ"
- *             UserLogin:
- *               value:
- *                 email: "user@example.com"
- *                 password: "user123"
  *     responses:
  *       200:
  *         description: Connexion réussie
@@ -225,8 +176,6 @@ const { authenticate }        = require("../middleware/authMiddleware");
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
- *       403:
- *         description: Rôle non autorisé pour cette organisation
  */
 
 /**
@@ -260,12 +209,11 @@ const { authenticate }        = require("../middleware/authMiddleware");
  */
 
 // POST /api/auth/register
-// type="ONG"     → crée org + compte ADMIN, renvoie orgCode généré
-// type="MANAGER" | "VIEWER" → rejoint une org existante via orgCode
+// L'inscription crée par défaut une ONG avec un rôle ADMIN
 router.post("/register", register);
 
 // POST /api/auth/login
-// Body: { email, password, role, orgCode? }   orgCode requis pour ADMIN
+// L'utilisateur se connecte simplement avec email / password
 router.post("/login", login);
 
 // GET /api/auth/me  — restaure la session depuis un token stocké
