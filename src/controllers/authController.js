@@ -1,3 +1,7 @@
+// ============================================================
+// authController.js — Contrôleur d'authentification
+// ============================================================
+
 const bcrypt       = require("bcryptjs");
 const jwt          = require("jsonwebtoken");
 const Organization = require("../models/Organization");
@@ -6,6 +10,7 @@ const User         = require("../models/User");
 const JWT_SECRET     = process.env.JWT_SECRET     || "dev_secret";
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 
+// ── Génération du token JWT ───────────────────────────────
 function signToken(user) {
   return jwt.sign(
     { userId: user._id.toString(), role: user.role, orgId: user.orgId.toString() },
@@ -14,26 +19,33 @@ function signToken(user) {
   );
 }
 
+// ── Nettoyage des données utilisateur pour le frontend ─────
 function sanitizeUser(user, org) {
   return {
-    id: user._id.toString(), name: user.name, email: user.email,
-    role: user.role, orgId: user.orgId.toString(),
-    orgName: org?.name || null, orgCode: org?.orgCode || null,
+    id: user._id.toString(),
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    orgId: user.orgId.toString(),
+    orgName: org?.name || null,
+    orgCode: org?.orgCode || null,
     createdAt: user.createdAt,
   };
 }
 
+// ── Création d’un compte ONG ──────────────────────────────
 async function register(req, res) {
   try {
     const { name, email, password, orgName, receiptNumber, country } = req.body;
 
+    // Vérifications obligatoires
     if (!name || !email || !password)
       return res.status(400).json({ error: "Tous les champs obligatoires doivent être renseignés." });
 
     if (password.length < 8)
       return res.status(400).json({ error: "Le mot de passe doit contenir au moins 8 caractères." });
 
-    if (await User.exists({ email: email.toLowerCase() }))
+    if (await User.exists({ email: email.toLowerCase().trim() }))
       return res.status(409).json({ error: "Un compte existe déjà avec cet email." });
 
     if (!orgName || !receiptNumber || !country)
@@ -45,7 +57,13 @@ async function register(req, res) {
     if (await Organization.exists({ receiptNumber }))
       return res.status(409).json({ error: "Ce numéro de récépissé est déjà enregistré." });
 
-    const generatedOrgCode = `NGO-${country.toUpperCase()}-2025-${String(Math.floor(Math.random() * 9000) + 1000)}`;
+    // ── Génération d’un orgCode unique ─────────────────────
+    let generatedOrgCode;
+    do {
+      generatedOrgCode = `NGO-${country.toUpperCase()}-2025-${String(Math.floor(Math.random() * 90000) + 10000)}`;
+    } while (await Organization.exists({ orgCode: generatedOrgCode }));
+
+    // Création de l’ONG
     const org = await Organization.create({
       name: orgName,
       orgCode: generatedOrgCode,
@@ -53,6 +71,7 @@ async function register(req, res) {
       country: country.toUpperCase()
     });
 
+    // Création de l’admin
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await User.create({
       orgId: org._id,
@@ -72,15 +91,19 @@ async function register(req, res) {
     });
 
   } catch (err) {
+    // Gestion des erreurs MongoDB et validation
     if (err.name === "ValidationError")
       return res.status(400).json({ error: Object.values(err.errors).map(e => e.message).join(" ") });
+
     if (err.code === 11000)
       return res.status(409).json({ error: "Cet email ou ce code est déjà utilisé." });
+
     console.error("register error:", err);
     return res.status(500).json({ error: "Erreur serveur interne." });
   }
 }
 
+// ── Connexion utilisateur ────────────────────────────────
 async function login(req, res) {
   try {
     const { email, password, orgCode } = req.body;
@@ -97,6 +120,7 @@ async function login(req, res) {
 
     const org = await Organization.findById(user.orgId);
 
+    // Vérification du code ONG pour les Admin
     if (user.role === "ADMIN" && orgCode) {
       const cleanOrgCode = orgCode.trim().toUpperCase();
       if (!org || org.orgCode.toUpperCase() !== cleanOrgCode)
@@ -115,6 +139,7 @@ async function login(req, res) {
   }
 }
 
+// ── Récupération du profil actuel ───────────────────────
 async function me(req, res) {
   try {
     const user = await User.findById(req.user.userId);
